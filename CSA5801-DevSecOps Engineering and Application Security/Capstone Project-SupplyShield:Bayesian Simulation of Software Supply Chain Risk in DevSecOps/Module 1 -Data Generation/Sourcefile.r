@@ -1,44 +1,132 @@
 library(shiny)
+library(shinydashboard)
 library(DT)
 library(ggplot2)
 library(dplyr)
 
-ui <- fluidPage(
+#-----------------------------
+# UI
+#-----------------------------
+ui <- dashboardPage(
   
-  titlePanel("SupplyShield: Bayesian Software Supply Chain Risk Dataset Generator"),
+  skin = "blue",
   
-  sidebarLayout(
+  dashboardHeader(title = "SupplyShield"),
+  
+  dashboardSidebar(
     
-    sidebarPanel(
+    sidebarMenu(
       
-      numericInput("rows",
-                   "Number of Records",
-                   value = 100,
-                   min = 10,
-                   max = 10000),
+      menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard")),
       
-      actionButton("generate","Generate Dataset"),
+      numericInput(
+        "rows",
+        "Number of Records",
+        value = 100,
+        min = 10,
+        max = 5000
+      ),
+      
+      actionButton(
+        "generate",
+        "Generate Dataset",
+        icon = icon("play")
+      ),
       
       br(),
       br(),
       
-      downloadButton("downloadData","Download CSV")
+      downloadButton(
+        "downloadData",
+        "Download CSV"
+      )
+      
+    )
+    
+  ),
+  
+  dashboardBody(
+    
+    tags$head(
+      
+      tags$style(HTML("
+
+      .content-wrapper, .right-side{
+      background-color:#F5F7FA;
+      }
+
+      .small-box{
+      border-radius:15px;
+      }
+
+      .box{
+      border-radius:10px;
+      }
+
+      "))
       
     ),
     
-    mainPanel(
+    fluidRow(
       
-      tabsetPanel(
-        
-        tabPanel("Dataset",
-                 DTOutput("table")),
-        
-        tabPanel("Risk Distribution",
-                 plotOutput("plot1")),
-        
-        tabPanel("Attack Type",
-                 plotOutput("plot2"))
-        
+      valueBoxOutput("total"),
+      
+      valueBoxOutput("avgcvss"),
+      
+      valueBoxOutput("highrisk"),
+      
+      valueBoxOutput("trust")
+      
+    ),
+    
+    fluidRow(
+      
+      box(
+        width = 12,
+        title = "Generated Dataset",
+        status = "primary",
+        solidHeader = TRUE,
+        DTOutput("table")
+      )
+      
+    ),
+    
+    fluidRow(
+      
+      box(
+        width = 6,
+        title = "Risk Level Distribution",
+        status = "success",
+        solidHeader = TRUE,
+        plotOutput("riskPlot", height = 300)
+      ),
+      
+      box(
+        width = 6,
+        title = "Attack Type",
+        status = "warning",
+        solidHeader = TRUE,
+        plotOutput("attackPlot", height = 300)
+      )
+      
+    ),
+    
+    fluidRow(
+      
+      box(
+        width = 6,
+        title = "Dependency Type",
+        status = "info",
+        solidHeader = TRUE,
+        plotOutput("dependencyPlot", height = 300)
+      ),
+      
+      box(
+        width = 6,
+        title = "CVSS vs Trust Score",
+        status = "danger",
+        solidHeader = TRUE,
+        plotOutput("scatterPlot", height = 300)
       )
       
     )
@@ -47,175 +135,263 @@ ui <- fluidPage(
   
 )
 
-server <- function(input, output){
+#-----------------------------
+# SERVER
+#-----------------------------
+server <- function(input, output) {
   
-  dataset <- eventReactive(input$generate,{
+  dataset <- eventReactive(input$generate, {
     
     n <- input$rows
     
-    Supplier <- sample(
-      paste("Supplier",1:50),
-      n,
-      replace=TRUE)
+    Supplier_ID <- paste0(
+      "SUP",
+      sprintf("%03d", sample(1:999, n, replace = TRUE))
+    )
     
     Dependency_Type <- sample(
-      
-      c("Open Source",
-        "Commercial",
-        "Internal"),
-      
+      c("Open Source", "Commercial", "Internal"),
       n,
-      replace=TRUE,
-      
-      prob=c(0.6,0.25,0.15)
-      
+      replace = TRUE,
+      prob = c(0.6,0.25,0.15)
     )
     
-    Attack_Type <- sample(
-      
-      c("Dependency Confusion",
-        "Typosquatting",
-        "Malicious Package",
-        "Compromised Repository",
-        "Backdoor Injection"),
-      
-      n,
-      
-      replace=TRUE
-      
-    )
+    Package_Trust_Score <- sample(40:100, n, replace = TRUE)
     
-    Vulnerability_Score <- round(runif(n,1,10),1)
-    
-    Package_Trust_Score <- round(runif(n,40,100),1)
+    CVSS_Score <- round(runif(n,0,10),1)
     
     Patch_Delay_Days <- sample(0:90,n,replace=TRUE)
     
-    Build_Failure_Rate <- round(runif(n,0,30),2)
-    
-    Developer_Awareness <- sample(
-      
-      c("Low","Medium","High"),
-      
+    Code_Review_Status <- sample(
+      c("Passed","Pending","Failed"),
       n,
-      
       replace=TRUE,
-      
-      prob=c(0.3,0.4,0.3)
-      
+      prob=c(0.5,0.3,0.2)
     )
     
-    CI_CD_Security <- sample(
-      
-      c("Weak","Moderate","Strong"),
-      
+    CI_CD_Security_Level <- sample(
+      c("Strong","Moderate","Weak"),
       n,
-      
       replace=TRUE,
-      
-      prob=c(0.25,0.45,0.30)
-      
+      prob=c(0.35,0.45,0.20)
     )
     
-    #####################################################
-    # Bayesian Probability
-    #####################################################
+    Attack_Type <- sample(
+      c(
+        "Typosquatting",
+        "Dependency Confusion",
+        "Malicious Package",
+        "Backdoor Injection"
+      ),
+      n,
+      replace=TRUE
+    )
     
+    # Bayesian Risk Calculation
     Prior <- 0.30
     
-    Likelihood <- Vulnerability_Score/10
+    Likelihood <-
+      (CVSS_Score/10)*0.5 +
+      (Patch_Delay_Days/90)*0.3 +
+      ((100-Package_Trust_Score)/100)*0.2
     
     Evidence <- 0.50
     
-    Posterior <- (Likelihood*Prior)/Evidence
-    
-    Posterior <- round(pmin(Posterior,1),3)
+    Bayesian_Risk_Probability <-
+      round(
+        pmin((Likelihood*Prior)/Evidence,1),
+        2
+      )
     
     Risk_Level <- ifelse(
-      
-      Posterior<0.30,
-      
+      Bayesian_Risk_Probability < 0.30,
       "Low",
-      
       ifelse(
-        
-        Posterior<0.60,
-        
+        Bayesian_Risk_Probability < 0.60,
         "Medium",
-        
         "High"
-        
       )
-      
     )
     
     data.frame(
       
-      Supplier,
-      
+      Supplier_ID,
       Dependency_Type,
-      
-      Attack_Type,
-      
-      Vulnerability_Score,
-      
       Package_Trust_Score,
-      
+      CVSS_Score,
       Patch_Delay_Days,
-      
-      Build_Failure_Rate,
-      
-      Developer_Awareness,
-      
-      CI_CD_Security,
-      
-      Posterior,
-      
+      Code_Review_Status,
+      CI_CD_Security_Level,
+      Attack_Type,
+      Bayesian_Risk_Probability,
       Risk_Level
       
     )
     
   })
   
+  #-----------------------
+  # Summary Boxes
+  #-----------------------
+  
+  output$total <- renderValueBox({
+    
+    valueBox(
+      nrow(dataset()),
+      "Total Records",
+      icon = icon("database"),
+      color = "blue"
+    )
+    
+  })
+  
+  output$avgcvss <- renderValueBox({
+    
+    valueBox(
+      round(mean(dataset()$CVSS_Score),2),
+      "Average CVSS",
+      icon = icon("shield"),
+      color = "purple"
+    )
+    
+  })
+  
+  output$highrisk <- renderValueBox({
+    
+    valueBox(
+      sum(dataset()$Risk_Level=="High"),
+      "High Risk",
+      icon = icon("exclamation-triangle"),
+      color = "red"
+    )
+    
+  })
+  
+  output$trust <- renderValueBox({
+    
+    valueBox(
+      round(mean(dataset()$Package_Trust_Score),1),
+      "Average Trust",
+      icon = icon("check-circle"),
+      color = "green"
+    )
+    
+  })
+  
+  #-----------------------
+  # Table
+  #-----------------------
+  
   output$table <- renderDT({
     
-    datatable(dataset())
+    datatable(
+      dataset(),
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE
+      )
+    )
     
   })
   
-  output$plot1 <- renderPlot({
-    
-    ggplot(dataset(),
-           
-           aes(Risk_Level))+
-      
-      geom_bar()
-    
-  })
+  #-----------------------
+  # Risk Plot
+  #-----------------------
   
-  output$plot2 <- renderPlot({
+  output$riskPlot <- renderPlot({
     
     ggplot(dataset(),
-           
-           aes(Attack_Type))+
+           aes(Risk_Level,
+               fill=Risk_Level))+
       
       geom_bar()+
       
-      coord_flip()
+      scale_fill_manual(values=c(
+        Low="#2ECC71",
+        Medium="#F1C40F",
+        High="#E74C3C"
+      ))+
+      
+      theme_minimal(base_size = 14)
     
   })
   
+  #-----------------------
+  # Attack Plot
+  #-----------------------
+  
+  output$attackPlot <- renderPlot({
+    
+    ggplot(dataset(),
+           aes(Attack_Type,
+               fill=Attack_Type))+
+      
+      geom_bar()+
+      
+      coord_flip()+
+      
+      theme_minimal(base_size = 14)+
+      
+      theme(legend.position="none")
+    
+  })
+  
+  #-----------------------
+  # Dependency Plot
+  #-----------------------
+  
+  output$dependencyPlot <- renderPlot({
+    
+    ggplot(dataset(),
+           aes(Dependency_Type,
+               fill=Dependency_Type))+
+      
+      geom_bar()+
+      
+      scale_fill_brewer(palette="Set2")+
+      
+      theme_minimal(base_size = 14)
+    
+  })
+  
+  #-----------------------
+  # Scatter Plot
+  #-----------------------
+  
+  output$scatterPlot <- renderPlot({
+    
+    ggplot(dataset(),
+           aes(
+             CVSS_Score,
+             Package_Trust_Score,
+             color=Risk_Level
+           ))+
+      
+      geom_point(size=3)+
+      
+      theme_minimal(base_size = 14)
+    
+  })
+  
+  #-----------------------
+  # Download CSV
+  #-----------------------
+  
   output$downloadData <- downloadHandler(
     
-    filename=function(){
+    filename = function(){
       
       "SupplyShield_Dataset.csv"
       
     },
     
-    content=function(file){
+    content = function(file){
       
-      write.csv(dataset(),file,row.names=FALSE)
+      write.csv(
+        dataset(),
+        file,
+        row.names = FALSE
+      )
       
     }
     
@@ -223,4 +399,7 @@ server <- function(input, output){
   
 }
 
-shinyApp(ui,server)
+#-----------------------------
+# Run App
+#-----------------------------
+shinyApp(ui, server)

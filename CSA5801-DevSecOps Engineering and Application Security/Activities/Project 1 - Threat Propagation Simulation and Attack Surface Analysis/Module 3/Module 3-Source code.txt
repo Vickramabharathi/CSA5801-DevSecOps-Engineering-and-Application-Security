@@ -1,0 +1,146 @@
+############################################################
+# Cybersecurity Discrete Event Simulation (DES) in RStudio
+############################################################
+
+# Install packages (Run only once)
+install.packages("readr")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("simmer")
+
+# Load libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(simmer)
+
+############################################################
+# STEP 1: Load Cybersecurity Dataset
+############################################################
+
+# Select the CSV file manually
+Cybersecurity_dataset <- read_csv(file.choose())
+
+# Display dataset
+head(Cybersecurity_dataset)
+summary(Cybersecurity_dataset)
+
+############################################################
+# STEP 2: Create Simulation Environment
+############################################################
+
+env <- simmer("CyberSecurity Simulation")
+
+############################################################
+# STEP 3: Create Resources
+############################################################
+
+env %>%
+  add_resource("Firewall", capacity = 1) %>%
+  add_resource("IDS", capacity = 1)
+
+############################################################
+# STEP 4: Define Cyber Attack Process
+############################################################
+
+attack_process <- trajectory("Cyber Attack") %>%
+  
+  # Firewall inspection
+  seize("Firewall", 1) %>%
+  timeout(function() runif(1, 2, 5)) %>%
+  release("Firewall", 1) %>%
+  
+  # IDS inspection
+  seize("IDS", 1) %>%
+  timeout(function() runif(1, 1, 3)) %>%
+  release("IDS", 1)
+
+############################################################
+# STEP 5: Generate Cyber Attacks
+############################################################
+
+env %>%
+  add_generator(
+    name_prefix = "Attack",
+    trajectory = attack_process,
+    distribution = function() rexp(1, rate = 0.5)
+  )
+
+############################################################
+# STEP 6: Run Simulation
+############################################################
+
+env %>% run(until = 100)
+
+############################################################
+# STEP 7: Collect Results
+############################################################
+
+arrivals <- get_mon_arrivals(env)
+resources <- get_mon_resources(env)
+
+############################################################
+# STEP 8: Display Results
+############################################################
+
+cat("\n========== Attack Log ==========\n")
+print(head(arrivals))
+
+cat("\n========== Resource Usage ==========\n")
+print(head(resources))
+
+############################################################
+# STEP 9: Statistical Evaluation
+############################################################
+
+cat("\n========== Statistics ==========\n")
+
+cat("Total Attacks Processed :", nrow(arrivals), "\n")
+cat("Average Processing Time :", mean(arrivals$activity_time), "\n")
+cat("Minimum Processing Time :", min(arrivals$activity_time), "\n")
+cat("Maximum Processing Time :", max(arrivals$activity_time), "\n")
+cat("Standard Deviation      :", sd(arrivals$activity_time), "\n")
+
+############################################################
+# STEP 10: Plot Histogram
+############################################################
+
+ggplot(arrivals, aes(activity_time)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "black") +
+  labs(
+    title = "Cyber Attack Processing Time",
+    x = "Processing Time",
+    y = "Number of Attacks"
+  )
+
+############################################################
+# STEP 11: Plot Resource Utilization
+############################################################
+
+ggplot(resources,
+       aes(x = time,
+           y = server,
+           color = resource)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Firewall and IDS Utilization",
+    x = "Simulation Time",
+    y = "Resources Busy"
+  )
+
+############################################################
+# STEP 12: Save Results
+############################################################
+
+write.csv(arrivals,
+          "DES_Output.csv",
+          row.names = FALSE)
+
+write.csv(resources,
+          "DES_Resources.csv",
+          row.names = FALSE)
+
+cat("\nSimulation Completed Successfully.\n")
+cat("DES_Output.csv has been saved.\n")
+cat("DES_Resources.csv has been saved.\n")
+
